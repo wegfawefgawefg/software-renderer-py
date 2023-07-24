@@ -1,0 +1,5 @@
+- low res setup
+- cube verts
+- line drawing function
+- manipulate points to be 3d
+- draw lines
