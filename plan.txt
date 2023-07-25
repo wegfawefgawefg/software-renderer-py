@@ -3,8 +3,7 @@
 - line drawing function
 - manipulate points to be 3d
 - draw lines
-
-so now for rendering texture triangles, 
-lets make a seperate function which draws a triangle in screen space given the following input. 
-
-essentially we need to replace pygame.draw.polygon in our draw_cube function with the draw_tri function, it should take in surface, texture, 
+- textured polygons
+- multiple cubes
+- z buffer
+- fix z fighting 

@@ -6,7 +6,7 @@ import glm
 pygame.init()
 
 render_resolution = glm.vec2(240, 160)
-cut_factor = 2
+cut_factor = 1
 render_resolution /= cut_factor
 window_size = render_resolution * 4 * cut_factor
 texture_path = "./box.png"
@@ -100,7 +100,7 @@ def transform(verts, tri_indices, pos, rot, scale, cam):
     model = glm.rotate(model, rot, glm.vec3(0, 1, 0))
 
     # Setup the View matrix
-    view = glm.lookAt(cam.pos, cam.target, glm.vec3(0, -1, 0))
+    view = glm.lookAt(cam.pos, cam.dir * 10.0, glm.vec3(0, -1, 0))
 
     # Setup the Projection matrix
     aspect_ratio = render_resolution.x / render_resolution.y
@@ -113,7 +113,7 @@ def transform(verts, tri_indices, pos, rot, scale, cam):
     transformed_verts = []
     for vert in verts:
         transformed_vert = mvp * glm.vec4(vert, 1.0)
-        transformed_vert /= transformed_vert.w  # Perspective division
+        # transformed_vert /= transformed_vert.w  # Perspective division
         transformed_verts.append(glm.vec3(transformed_vert))
 
     return transformed_verts
@@ -146,7 +146,7 @@ def barycentric(verts, p):
     return glm.vec3(u, v, 1 - u - v)
 
 
-def draw_texture_tri(surface, texture, verts, tex_coords):
+def draw_texture_tri(surface, texture, verts, tex_coords, z_buffer):
     min_x = min(v[0] for v in verts)
     max_x = max(v[0] for v in verts)
     min_y = min(v[1] for v in verts)
@@ -163,13 +163,21 @@ def draw_texture_tri(surface, texture, verts, tex_coords):
             bc = barycentric(verts, p)
             if min(bc.x, bc.y, bc.z) < -0.001:
                 continue
+
             uv = (
                 glm.vec3(*tex_coords[0], 0) * bc.x
                 + glm.vec3(*tex_coords[1], 0) * bc.y
                 + glm.vec3(*tex_coords[2], 0) * bc.z
             )
-            color = sample_texture(texture, uv.to_tuple())
-            surface.set_at((x, y), color)
+            depth = verts[0].z * bc.x + verts[1].z * bc.y + verts[2].z * bc.z
+            # if depth > 1:
+            #     continue
+            if (
+                depth < z_buffer[y][x]
+            ):  # If the current point is closer than the stored one
+                z_buffer[y][x] = depth  # Update the depth buffer
+                color = sample_texture(texture, uv.to_tuple())
+                surface.set_at((x, y), color)
 
 
 def draw_cube(
@@ -179,20 +187,25 @@ def draw_cube(
     tri_indices,
     normals,
     texture,
+    z_buffer,
 ):
     # Convert the vertices from normalized device coordinates to window coordinates
     transformed_verts = [
-        (render_resolution.x * (v.x + 1) / 2, render_resolution.y * (1 - (v.y + 1) / 2))
+        glm.vec3(
+            render_resolution.x * (v.x / v.z + 1) / 2,
+            render_resolution.y * (1 - (v.y / v.z + 1) / 2),
+            v.z,
+        )
         for v in transformed_verts
     ]
     for i in range(len(tri_indices)):
-        # Back-face culling: Only draw the triangle if it's facing towards the camera
         if normals[i].z < 0:
             draw_texture_tri(
                 surface,
                 texture,
                 [transformed_verts[idx] for idx in tri_indices[i]],
                 cube_tex_coords[i],
+                z_buffer,
             )
 
 
@@ -200,7 +213,7 @@ def mouse_pos():
     return glm.vec2(pygame.mouse.get_pos()) / window_size * render_resolution
 
 
-def draw(surface, texture, cam):
+def draw(surface, texture, z_buffer, cam):
     # angle = pygame.time.get_ticks() / 1000.0
     angle = 0
     cube_verts = gen_cube_verts()
@@ -208,16 +221,16 @@ def draw(surface, texture, cam):
     cube_tex_coords = gen_cube_tex_coords()
 
     # draw a bunch of cubes
-    for z in range(0, 2):
-        for x in range(0, 2):
-            pos = glm.vec3(x * 3, 0, z * 3)
+    for z in range(0, 10):
+        for x in range(0, 10):
+            pos = glm.vec3(x * 15, 0, z * 15)
+            # pos = glm.vec3(0, 0, 0)
             transformed_vertices = transform(
                 cube_verts,
                 cube_tri_indices,
-                # glm.vec3(0, 0, 0),
                 pos,
                 angle,
-                glm.vec3(1, 1, 1),
+                glm.vec3(5, 5, 5),
                 cam,
             )
             normals = calc_normals(transformed_vertices, cube_tri_indices)
@@ -228,6 +241,7 @@ def draw(surface, texture, cam):
                 cube_tri_indices,
                 normals,
                 texture,
+                z_buffer,
             )
 
     rect_size = glm.vec2(16, 16)
@@ -238,18 +252,39 @@ def draw(surface, texture, cam):
 
 
 class Camera:
-    def __init__(self, pos, target):
+    def __init__(self, pos, dir):
         self.pos = pos
-        self.target = target
+        self.dir = dir
+        self.yaw = 0.0
+        self.pitch = 0.0
+
+    def update(self, mouse_delta, speed=0.5):
+        # Update rotation angles
+        self.yaw -= mouse_delta[0] * speed
+        self.pitch += mouse_delta[1] * speed
+
+        # Constrain the pitch
+        self.pitch = max(-90, min(90, self.pitch))
+
+        # Normalize direction vector
+        self.dir = glm.normalize(self.dir)
+
+        # Calculate the new direction vector
+        dx = math.cos(math.radians(self.yaw)) * math.cos(math.radians(self.pitch))
+        dy = math.sin(math.radians(self.pitch))
+        dz = math.sin(math.radians(self.yaw)) * math.cos(math.radians(self.pitch))
+        self.dir = glm.vec3(dx, dy, dz)
 
 
 def main():
+    pygame.mouse.set_visible(False)  # Hide the cursor
+    pygame.event.set_grab(True)  # Keep the mouse inside the window
+
     window = pygame.display.set_mode(window_size.to_tuple())
     render_surface = pygame.Surface(render_resolution.to_tuple())
     texture = pygame.image.load(texture_path)
 
-    cam = Camera(glm.vec3(0, 0, -3), glm.vec3(0, 0, 0))
-
+    cam = Camera(glm.vec3(0, 0, -20), glm.vec3(0, 0, 0))
     running = True
     while running:
         for event in pygame.event.get():
@@ -257,44 +292,48 @@ def main():
                 event.type == pygame.KEYDOWN and (event.key == pygame.K_ESCAPE)
             ):
                 running = False
-            # scrolling should move the cam away from its target
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 4:
-                    cam.pos.z += 0.1
-                if event.button == 5:
-                    cam.pos.z -= 0.1
 
-        # make cam go up if w pressed, and down if s pressed
-        # via keypressed
         pressed = pygame.key.get_pressed()
-        speed = 0.1
+        speed = 1.0
         if pressed[pygame.K_w]:
-            cam.pos.y -= speed
+            cam.pos += glm.normalize(cam.dir - cam.pos) * speed
         if pressed[pygame.K_s]:
-            cam.pos.y += speed
+            cam.pos -= glm.normalize(cam.dir - cam.pos) * speed
         if pressed[pygame.K_a]:
-            cam.pos.x -= speed
+            right = glm.cross(glm.normalize(cam.dir - cam.pos), glm.vec3(0, 1, 0))
+            cam.pos += glm.normalize(right) * speed
         if pressed[pygame.K_d]:
-            cam.pos.x += speed
-        # e and q for in and out
-        if pressed[pygame.K_e]:
-            cam.pos.z += speed
-        if pressed[pygame.K_q]:
-            cam.pos.z -= speed
+            right = glm.cross(glm.normalize(cam.dir - cam.pos), glm.vec3(0, 1, 0))
+            cam.pos -= glm.normalize(right) * speed
+        if pressed[pygame.K_SPACE]:
+            cam.pos -= glm.vec3(0, 1, 0) * speed
+        if pressed[pygame.K_LSHIFT] or pressed[pygame.K_RSHIFT]:
+            cam.pos += glm.vec3(0, 1, 0) * speed
 
-        m_n = mouse_pos() / render_resolution * 2 - 1
-        cam.target = glm.vec3(
-            math.sin(m_n.x * math.pi),
-            math.sin(m_n.y * math.pi),
-            0,
-        )
+        mouse_delta = pygame.mouse.get_rel()
+        cam.update(mouse_delta)
 
+        z_buffer = [
+            [float("inf")] * int(render_resolution.x)
+            for _ in range(int(render_resolution.y))
+        ]
         render_surface.fill((0, 0, 0))
 
-        draw(render_surface, texture, cam)
+        draw(render_surface, texture, z_buffer, cam)
 
         stretched_surface = pygame.transform.scale(render_surface, window_size)
         window.blit(stretched_surface, (0, 0))
+
+        # draw the cam pos and dir via text in tl
+        size = 24
+        font = pygame.font.SysFont("Arial", size)
+        pos_text = font.render(f"pos: {cam.pos}", True, (255, 255, 255))
+        dir_text = font.render(f"dir: {cam.dir}", True, (255, 255, 255))
+        y_cursor = 0
+        window.blit(pos_text, (0, y_cursor))
+        y_cursor += size
+        window.blit(dir_text, (0, y_cursor))
+
         pygame.display.update()
 
     pygame.quit()
