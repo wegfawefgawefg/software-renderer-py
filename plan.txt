@@ -6,4 +6,4 @@
 - textured polygons
 - multiple cubes
 - z buffer
-- fix z fighting 
+- fix z fighting
