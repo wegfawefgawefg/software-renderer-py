@@ -2,6 +2,8 @@
 
 This is an early educational software-renderer prototype in Python.
 
+![Renderer Screenshot](image.png)
+
 ## Timeline
 
 - First worked on: **July 24, 2023** (initial commit)
