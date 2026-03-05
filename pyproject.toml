@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "software-renderer-py"
+version = "0.1.0"
+description = "Software renderer demo using pygame"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PyGLM>=2.7.3",
+  "pygame-ce>=2.5.2",
+]
+
+[project.scripts]
+main = "src.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
